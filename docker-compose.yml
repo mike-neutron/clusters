@@ -12,7 +12,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - ./ads_202507261528.csv:/ads_202507261528.csv
-      
+
 volumes:
   postgres_data: 
