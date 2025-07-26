@@ -137,7 +137,7 @@ params AS (
         54.7::double precision AS min_lat,
         83.2::double precision AS max_lng,
         55.2::double precision AS max_lat,
-        $5 AS zoom -- можешь менять для теста
+        $5 AS zoom
 ),
 constants AS (
     SELECT 
@@ -160,31 +160,33 @@ raw_points AS (
 tile_grid AS (
     SELECT 
         ST_SnapToGrid(r.geom, c.tile_resolution, c.tile_resolution) AS grid_cell,
-        r.price
+        r.price,
+        r.geom
     FROM raw_points r, constants c
 ),
 clusters AS (
     SELECT
         ST_AsText(grid_cell) AS cluster_id,
-        ST_Centroid(grid_cell) AS center_merc,
         COUNT(*) AS point_count,
         AVG(price) AS avg_price,
         MIN(price) AS min_price,
-        MAX(price) AS max_price
+        MAX(price) AS max_price,
+        ST_Centroid(ST_Collect(geom)) AS center_geom
     FROM tile_grid
     GROUP BY grid_cell
 )
 SELECT
     cluster_id,
-    ST_Y(ST_Transform(center_merc, 4326)) AS center_lat,
-    ST_X(ST_Transform(center_merc, 4326)) AS center_lng,
+    ST_Y(ST_Transform(center_geom, 4326)) AS center_lat,
+    ST_X(ST_Transform(center_geom, 4326)) AS center_lng,
     point_count,
     avg_price,
     min_price,
     max_price
 FROM clusters;
-	`
+`
 
+	zoomLevel = zoomLevel + 2
 	rows, err := db.Query(query, minLng, minLat, maxLng, maxLat, zoomLevel)
 	if err != nil {
 		log.Println("Ошибка при выполнении запроса:", err)
