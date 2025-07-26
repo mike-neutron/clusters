@@ -13,7 +13,7 @@ import (
 )
 
 type Cluster struct {
-	ClusterID  int     `json:"cluster_id"`
+	ClusterID  string  `json:"cluster_id"`
 	CenterLat  float64 `json:"center_lat"`
 	CenterLng  float64 `json:"center_lng"`
 	PointCount int     `json:"point_count"`
@@ -128,20 +128,66 @@ func getPropertiesHandler(c *gin.Context) {
 }
 
 func getClusters(minLat, maxLat, minLng, maxLng float64, zoomLevel int) ([]Cluster, error) {
+	fmt.Println(minLat, maxLat, minLng, maxLng, zoomLevel)
 	query := `
-		SELECT 
-			cluster_id,
-			center_lat,
-			center_lng,
-			point_count,
-			avg_price,
-			min_price,
-			max_price
-		FROM get_clusters($1, $2, $3, $4, $5)
+WITH
+params AS (
+    SELECT 
+        82.8::double precision AS min_lng,
+        54.7::double precision AS min_lat,
+        83.2::double precision AS max_lng,
+        55.2::double precision AS max_lat,
+        $5 AS zoom -- можешь менять для теста
+),
+constants AS (
+    SELECT 
+        20037508.34 * 2 AS world_size_merc,
+        256 * (20037508.34 * 2 / (256 * (1 << zoom::integer))) AS tile_resolution,
+        ST_Transform(
+            ST_MakeEnvelope($1, $2, $3, $4, 4326),
+            3857
+        ) AS bbox_geom
+    FROM params
+),
+raw_points AS (
+    SELECT 
+        p.id, 
+        p.price,
+        ST_Transform(ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326), 3857) AS geom
+    FROM properties p, constants c
+    WHERE ST_Transform(ST_SetSRID(ST_MakePoint(p.longitude, p.latitude), 4326), 3857) && c.bbox_geom
+),
+tile_grid AS (
+    SELECT 
+        ST_SnapToGrid(r.geom, c.tile_resolution, c.tile_resolution) AS grid_cell,
+        r.price
+    FROM raw_points r, constants c
+),
+clusters AS (
+    SELECT
+        ST_AsText(grid_cell) AS cluster_id,
+        ST_Centroid(grid_cell) AS center_merc,
+        COUNT(*) AS point_count,
+        AVG(price) AS avg_price,
+        MIN(price) AS min_price,
+        MAX(price) AS max_price
+    FROM tile_grid
+    GROUP BY grid_cell
+)
+SELECT
+    cluster_id,
+    ST_Y(ST_Transform(center_merc, 4326)) AS center_lat,
+    ST_X(ST_Transform(center_merc, 4326)) AS center_lng,
+    point_count,
+    avg_price,
+    min_price,
+    max_price
+FROM clusters;
 	`
 
-	rows, err := db.Query(query, minLat, maxLat, minLng, maxLng, zoomLevel)
+	rows, err := db.Query(query, minLng, minLat, maxLng, maxLat, zoomLevel)
 	if err != nil {
+		log.Println("Ошибка при выполнении запроса:", err)
 		return nil, err
 	}
 	defer rows.Close()
