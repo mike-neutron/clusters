@@ -291,6 +291,8 @@ func convertYandexZoomToGeoTileGridPrecision(zoom int) int {
 	case zoom <= 14:
 		return 16
 	case zoom <= 15:
+		return 17
+	case zoom <= 16:
 		return 18
 	case zoom <= 19:
 		return 21
