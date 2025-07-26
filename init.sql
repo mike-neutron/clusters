@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS properties (
 -- Включение расширения PostGIS
 CREATE EXTENSION IF NOT EXISTS postgis;
 
--- Создание индексов для быстрого поиска по координатам
-CREATE INDEX IF NOT EXISTS idx_properties_coordinates ON properties USING GIST (
-    ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)
-);
+-- Индекс для быстрого поиска по координатам в Web Mercator
+CREATE INDEX IF NOT EXISTS idx_properties_mercator ON properties 
+USING GIST (ST_Transform(ST_SetSRID(ST_MakePoint(longitude, latitude), 4326), 3857));
