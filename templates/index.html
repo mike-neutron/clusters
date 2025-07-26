@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}}</title>
+    <script src="https://api-maps.yandex.ru/2.1/?apikey=your-api-key&lang=ru_RU" type="text/javascript"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }
+        
+        #map {
+            width: 100%;
+            height: 100vh;
+        }
+        
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        
+        .cluster {
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        .cluster:hover {
+            transform: scale(1.1);
+            transition: transform 0.2s;
+        }
+        
+        .property-marker {
+            width: 8px;
+            height: 8px;
+            background: #ff4444;
+            border-radius: 50%;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            z-index: 1001;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    
+    <div class="info-panel">
+        <h3>Кластеризация недвижимости</h3>
+        <p><strong>Уровень зума:</strong> <span id="zoom-level">-</span></p>
+        <p><strong>Кластеров:</strong> <span id="cluster-count">-</span></p>
+        <p><strong>Объектов:</strong> <span id="property-count">-</span></p>
+        <p><strong>Средняя цена:</strong> <span id="avg-price">-</span></p>
+        <div id="loading" class="loading" style="display: none;">
+            Загрузка данных...
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let clusterPlacemarks = [];
+        let propertyPlacemarks = [];
+        let currentZoom = 10;
+        let isLoading = false;
+
+        // Инициализация карты
+        ymaps.ready(function () {
+            map = new ymaps.Map('map', {
+                center: [54.9833, 82.8963], // Новосибирск
+                zoom: 10,
+                controls: ['zoomControl', 'fullscreenControl']
+            });
+
+            // Обработчик изменения зума и границ карты
+            map.events.add('boundschange', function (event) {
+                if (!isLoading) {
+                    updateClusters();
+                }
+            });
+
+            // Обработчик клика по кластеру
+            map.events.add('click', function (event) {
+                const target = event.get('target');
+                if (target && target.properties && target.properties.get('clusterId')) {
+                    const clusterId = target.properties.get('clusterId');
+                    const bounds = target.geometry.getBounds();
+                    map.setBounds(bounds, { checkZoomRange: true });
+                }
+            });
+
+            // Начальная загрузка кластеров
+            updateClusters();
+        });
+
+        // Функция обновления кластеров
+        async function updateClusters() {
+            if (isLoading) return;
+            
+            isLoading = true;
+            showLoading(true);
+
+            try {
+                const bounds = map.getBounds();
+                const zoom = map.getZoom();
+                currentZoom = zoom;
+
+                // Очистка предыдущих меток
+                clearPlacemarks();
+
+                // Получение кластеров с сервера
+                const clusters = await fetchClusters(bounds, zoom);
+                
+                // Отображение кластеров на карте
+                displayClusters(clusters);
+                
+                // Обновление информации в панели
+                updateInfoPanel(clusters);
+                
+            } catch (error) {
+                console.error('Ошибка при загрузке кластеров:', error);
+            } finally {
+                isLoading = false;
+                showLoading(false);
+            }
+        }
+
+        // Функция получения кластеров с сервера
+        async function fetchClusters(bounds, zoom) {
+            const params = new URLSearchParams({
+                min_lat: bounds[0][0],
+                max_lat: bounds[1][0],
+                min_lng: bounds[0][1],
+                max_lng: bounds[1][1],
+                zoom: zoom
+            });
+
+            const response = await fetch(`/api/clusters?${params}`);
+            if (!response.ok) {
+                throw new Error('Ошибка при получении кластеров');
+            }
+
+            return await response.json();
+        }
+
+        // Функция отображения кластеров на карте
+        function displayClusters(clusters) {
+            clusters.forEach(cluster => {
+                const size = Math.max(20, Math.min(60, 20 + cluster.point_count * 2));
+                const color = getClusterColor(cluster.point_count);
+                
+                const placemark = new ymaps.Placemark(
+                    [cluster.center_lat, cluster.center_lng],
+                    {
+                        clusterId: cluster.cluster_id,
+                        pointCount: cluster.point_count,
+                        avgPrice: cluster.avg_price,
+                        minPrice: cluster.min_price,
+                        maxPrice: cluster.max_price
+                    },
+                    {
+                        preset: 'islands#circleIcon',
+                        iconColor: color,
+                        iconContent: cluster.point_count > 1 ? cluster.point_count : '',
+                        iconContentOffset: [0, 0],
+                        iconContentLayout: ymaps.templateLayoutFactory.createClass(
+                            '<div style="color: white; font-weight: bold; font-size: 12px; text-align: center; line-height: 1;">$[properties.iconContent]</div>'
+                        )
+                    }
+                );
+
+                // Добавление всплывающей подсказки
+                placemark.properties.set('hintContent', 
+                    `Кластер: ${cluster.point_count} объектов<br>
+                     Средняя цена: ${formatPrice(cluster.avg_price)}<br>
+                     Диапазон: ${formatPrice(cluster.min_price)} - ${formatPrice(cluster.max_price)}`
+                );
+
+                clusterPlacemarks.push(placemark);
+                map.geoObjects.add(placemark);
+            });
+        }
+
+        // Функция получения цвета кластера в зависимости от количества точек
+        function getClusterColor(pointCount) {
+            if (pointCount <= 5) return '#4CAF50';
+            if (pointCount <= 20) return '#FF9800';
+            if (pointCount <= 50) return '#F44336';
+            return '#9C27B0';
+        }
+
+        // Функция форматирования цены
+        function formatPrice(price) {
+            return new Intl.NumberFormat('ru-RU', {
+                style: 'currency',
+                currency: 'RUB',
+                minimumFractionDigits: 0
+            }).format(price);
+        }
+
+        // Функция очистки меток
+        function clearPlacemarks() {
+            clusterPlacemarks.forEach(placemark => {
+                map.geoObjects.remove(placemark);
+            });
+            clusterPlacemarks = [];
+
+            propertyPlacemarks.forEach(placemark => {
+                map.geoObjects.remove(placemark);
+            });
+            propertyPlacemarks = [];
+        }
+
+        // Функция обновления информационной панели
+        function updateInfoPanel(clusters) {
+            const totalProperties = clusters.reduce((sum, cluster) => sum + cluster.point_count, 0);
+            const avgPrice = clusters.length > 0 
+                ? clusters.reduce((sum, cluster) => sum + cluster.avg_price * cluster.point_count, 0) / totalProperties
+                : 0;
+
+            document.getElementById('zoom-level').textContent = currentZoom;
+            document.getElementById('cluster-count').textContent = clusters.length;
+            document.getElementById('property-count').textContent = totalProperties;
+            document.getElementById('avg-price').textContent = formatPrice(avgPrice);
+        }
+
+        // Функция показа/скрытия индикатора загрузки
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // Функция загрузки отдельных объектов при большом зуме
+        async function loadProperties(bounds) {
+            if (currentZoom < 16) return; // Загружаем только при большом зуме
+
+            try {
+                const params = new URLSearchParams({
+                    min_lat: bounds[0][0],
+                    max_lat: bounds[1][0],
+                    min_lng: bounds[0][1],
+                    max_lng: bounds[1][1],
+                    limit: 1000
+                });
+
+                const response = await fetch(`/api/properties?${params}`);
+                if (!response.ok) {
+                    throw new Error('Ошибка при получении объектов');
+                }
+
+                const properties = await response.json();
+                displayProperties(properties);
+            } catch (error) {
+                console.error('Ошибка при загрузке объектов:', error);
+            }
+        }
+
+        // Функция отображения отдельных объектов
+        function displayProperties(properties) {
+            properties.forEach(property => {
+                const placemark = new ymaps.Placemark(
+                    [property.latitude, property.longitude],
+                    {
+                        title: property.title,
+                        price: property.price,
+                        propertyType: property.property_type,
+                        rooms: property.rooms,
+                        area: property.area
+                    },
+                    {
+                        preset: 'islands#redDotIcon'
+                    }
+                );
+
+                // Добавление всплывающей подсказки
+                placemark.properties.set('hintContent', 
+                    `${property.title}<br>
+                     Цена: ${formatPrice(property.price)}<br>
+                     Тип: ${property.property_type}<br>
+                     ${property.rooms ? `Комнат: ${property.rooms}<br>` : ''}
+                     ${property.area ? `Площадь: ${property.area} м²` : ''}`
+                );
+
+                propertyPlacemarks.push(placemark);
+                map.geoObjects.add(placemark);
+            });
+        }
+    </script>
+</body>
+</html> 
