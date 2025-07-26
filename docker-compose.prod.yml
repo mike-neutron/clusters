@@ -12,7 +12,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      
+    networks:
+      - clusters
+
   app:
     build: .
     depends_on:
@@ -31,6 +33,14 @@ services:
       - traefik.http.services.clusters.loadbalancer.server.port=8080
       - traefik.http.routers.clusters.tls=true
       - traefik.http.routers.clusters.tls.certresolver=tlsresolver
+    networks:
+      - clusters
 
 volumes:
   postgres_data: 
+
+networks:
+  clusters:
+    driver: bridge
+    name: clusters
+    external: true
