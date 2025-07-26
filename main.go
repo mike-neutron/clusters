@@ -186,7 +186,7 @@ SELECT
 FROM clusters;
 `
 
-	zoomLevel = zoomLevel + 2
+	zoomLevel = convertYandexZoomToGeoTileGridPrecision(zoomLevel)
 	rows, err := db.Query(query, minLng, minLat, maxLng, maxLat, zoomLevel)
 	if err != nil {
 		log.Println("Ошибка при выполнении запроса:", err)
@@ -258,4 +258,45 @@ func getEnv(key, defaultValue string) string {
 		return value
 	}
 	return defaultValue
+}
+
+func convertYandexZoomToGeoTileGridPrecision(zoom int) int {
+	switch {
+	case zoom <= 1:
+		return 1
+	case zoom <= 2:
+		return 2
+	case zoom <= 3:
+		return 4
+	case zoom <= 4:
+		return 5
+	case zoom <= 5:
+		return 7
+	case zoom <= 6:
+		return 7
+	case zoom <= 7:
+		return 8
+	case zoom <= 8:
+		return 10
+	case zoom <= 9:
+		return 11
+	case zoom <= 10:
+		return 12
+	case zoom <= 11:
+		return 13
+	case zoom <= 12:
+		return 14
+	case zoom <= 13:
+		return 15
+	case zoom <= 14:
+		return 16
+	case zoom <= 15:
+		return 18
+	case zoom <= 19:
+		return 21
+	case zoom <= 21:
+		return 21
+	default:
+		return 7
+	}
 }
