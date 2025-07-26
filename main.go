@@ -133,10 +133,10 @@ func getClusters(minLat, maxLat, minLng, maxLng float64, zoomLevel int) ([]Clust
 WITH
 params AS (
     SELECT 
-        82.8::double precision AS min_lng,
-        54.7::double precision AS min_lat,
-        83.2::double precision AS max_lng,
-        55.2::double precision AS max_lat,
+        $1::double precision AS min_lng,
+        $2::double precision AS min_lat,
+        $3::double precision AS max_lng,
+        $4::double precision AS max_lat,
         $5 AS zoom
 ),
 constants AS (
@@ -144,7 +144,7 @@ constants AS (
         20037508.34 * 2 AS world_size_merc,
         256 * (20037508.34 * 2 / (256 * (1 << zoom::integer))) AS tile_resolution,
         ST_Transform(
-            ST_MakeEnvelope($1, $2, $3, $4, 4326),
+            ST_MakeEnvelope(min_lng, min_lat, max_lng, max_lat, 4326),
             3857
         ) AS bbox_geom
     FROM params
